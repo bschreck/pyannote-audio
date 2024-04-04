@@ -176,6 +176,9 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
                 f'clustering must be one of [{", ".join(list(Clustering.__members__))}]'
             )
         self.clustering = Klustering.value(metric=metric)
+        self.hard_clusters = None
+        self.centroids = None
+        self.num_different_speakers = None
 
     @property
     def segmentation_batch_size(self) -> int:
@@ -519,7 +522,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             hook("embeddings", embeddings)
             #   shape: (num_chunks, local_num_speakers, dimension)
 
-        hard_clusters, _, centroids = self.clustering(
+        self.hard_clusters, _, self.centroids = self.clustering(
             embeddings=embeddings,
             segmentations=binarized_segmentations,
             num_clusters=num_speakers,
@@ -532,19 +535,19 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         # centroids: (num_speakers, dimension)
 
         # number of detected clusters is the number of different speakers
-        num_different_speakers = np.max(hard_clusters) + 1
+        self.num_different_speakers = np.max(self.hard_clusters) + 1
 
         # detected number of speakers can still be out of bounds
         # (specifically, lower than `min_speakers`), since there could be too few embeddings
         # to make enough clusters with a given minimum cluster size.
         if (
-            num_different_speakers < min_speakers
-            or num_different_speakers > max_speakers
+            self.num_different_speakers < min_speakers
+            or self.num_different_speakers > max_speakers
         ):
             warnings.warn(
                 textwrap.dedent(
                     f"""
-                The detected number of speakers ({num_different_speakers}) is outside
+                The detected number of speakers ({self.num_different_speakers}) is outside
                 the given bounds [{min_speakers}, {max_speakers}]. This can happen if the
                 given audio file is too short to contain {min_speakers} or more speakers.
                 Try to lower the desired minimal number of speakers.
@@ -563,10 +566,10 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         inactive_speakers = np.sum(binarized_segmentations.data, axis=1) == 0
         #   shape: (num_chunks, num_speakers)
 
-        hard_clusters[inactive_speakers] = -2
+        self.hard_clusters[inactive_speakers] = -2
         discrete_diarization = self.reconstruct(
             segmentations,
-            hard_clusters,
+            self.hard_clusters,
             count,
         )
         hook("discrete_diarization", discrete_diarization)
@@ -613,7 +616,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             return diarization
 
         # this can happen when we use OracleClustering
-        if centroids is None:
+        if self.centroids is None:
             return diarization, None
 
         # The number of centroids may be smaller than the number of speakers
@@ -621,19 +624,19 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         # obtained from `speaker_count` for some frames is larger than the number
         # of clusters obtained from `clustering`. In this case, we append zero embeddings
         # for extra speakers
-        if len(diarization.labels()) > centroids.shape[0]:
-            centroids = np.pad(
-                centroids, ((0, len(diarization.labels()) - centroids.shape[0]), (0, 0))
+        if len(diarization.labels()) > self.centroids.shape[0]:
+            self.centroids = np.pad(
+                self.centroids, ((0, len(diarization.labels()) - self.centroids.shape[0]), (0, 0))
             )
 
         # re-order centroids so that they match
         # the order given by diarization.labels()
         inverse_mapping = {label: index for index, label in mapping.items()}
-        centroids = centroids[
+        self.centroids = self.centroids[
             [inverse_mapping[label] for label in diarization.labels()]
         ]
 
-        return diarization, centroids
+        return diarization, self.centroids
 
     def get_metric(self) -> GreedyDiarizationErrorRate:
         return GreedyDiarizationErrorRate(**self.der_variant)
