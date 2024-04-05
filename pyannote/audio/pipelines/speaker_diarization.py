@@ -179,6 +179,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         self.hard_clusters = None
         self.centroids = None
         self.num_different_speakers = None
+        self.count = None
 
     @property
     def segmentation_batch_size(self) -> int:
@@ -493,17 +494,17 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
             )
 
         # estimate frame-level number of instantaneous speakers
-        count = self.speaker_count(
+        self.count = self.speaker_count(
             binarized_segmentations,
             self._segmentation.model.receptive_field,
             warm_up=(0.0, 0.0),
         )
-        hook("speaker_counting", count)
+        hook("speaker_counting", self.count)
         #   shape: (num_frames, 1)
         #   dtype: int
 
         # exit early when no speaker is ever active
-        if np.nanmax(count.data) == 0.0:
+        if np.nanmax(self.count.data) == 0.0:
             diarization = Annotation(uri=file["uri"])
             if return_embeddings:
                 return diarization, np.zeros((0, self._embedding.dimension))
@@ -558,7 +559,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         # during counting, we could possibly overcount the number of instantaneous
         # speakers due to segmentation errors, so we cap the maximum instantaneous number
         # of speakers by the `max_speakers` value
-        count.data = np.minimum(count.data, max_speakers).astype(np.int8)
+        self.count.data = np.minimum(self.count.data, max_speakers).astype(np.int8)
 
         # reconstruct discrete diarization from raw hard clusters
 
@@ -570,7 +571,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         discrete_diarization = self.reconstruct(
             segmentations,
             self.hard_clusters,
-            count,
+            self.count,
         )
         hook("discrete_diarization", discrete_diarization)
 
