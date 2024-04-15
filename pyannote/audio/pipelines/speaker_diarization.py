@@ -122,6 +122,7 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
         embedding_batch_size: int = 1,
         segmentation_batch_size: int = 1,
         der_variant: Optional[dict] = None,
+        min_duration_off: float = 0.0,
         use_auth_token: Union[Text, None] = None,
     ):
         super().__init__()
@@ -158,6 +159,8 @@ class SpeakerDiarization(SpeakerDiarizationMixin, Pipeline):
                 threshold=Uniform(0.1, 0.9),
                 min_duration_off=Uniform(0.0, 1.0),
             )
+        if not self.training:
+            self.segmentation.min_duration_off = min_duration_off
 
         if self.klustering == "OracleClustering":
             metric = "not_applicable"
